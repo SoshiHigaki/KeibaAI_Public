@@ -6,12 +6,6 @@ from tqdm.notebook import tqdm
 import pandas as pd
 
 
-import requests
-from bs4 import BeautifulSoup
-import re
-import time
-from tqdm.notebook import tqdm
-
 class get_data(object):
     
     def __init__(self):
