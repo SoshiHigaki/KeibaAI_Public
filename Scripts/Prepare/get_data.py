@@ -12,7 +12,7 @@ class get_data(object):
         self.race_url_pattern = r'/race/\d+'
         self.init_race_url = 'https://db.netkeiba.com/'
     
-    def base_url(self, start_year, start_mon, end_year, end_mon):
+    def get_base_url(self, start_year, start_mon, end_year, end_mon):
         url = f'https://db.netkeiba.com/?pid=race_list&word=&track%5B%5D=1&track%5B%5D=2&start_year={start_year}&start_mon={start_mon}&end_year={end_year}&end_mon={end_mon}&jyo%5B%5D=01&jyo%5B%5D=02&jyo%5B%5D=03&jyo%5B%5D=04&jyo%5B%5D=05&jyo%5B%5D=06&jyo%5B%5D=07&jyo%5B%5D=08&jyo%5B%5D=09&jyo%5B%5D=10&kyori_min=&kyori_max=&sort=date&list=100'
         return url
     
