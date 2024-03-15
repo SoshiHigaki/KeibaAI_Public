@@ -85,11 +85,14 @@ class get_data(object):
                 try:
                     tmp = td.a['href']
                     if '/horse/' in tmp:
-                        horse_ids.append(tmp)
+                        id = re.findall(r'\d+', tmp)[0]
+                        horse_ids.append(id)
                     elif '/jockey/' in tmp:
-                        jockey_ids.append(tmp)
+                        id = re.findall(r'\d+', tmp)[0]
+                        jockey_ids.append(id)
                     elif '/trainer/' in tmp:
-                        trainer_ids.append(tmp)
+                        id = re.findall(r'\d+', tmp)[0]
+                        trainer_ids.append(id)
                 except:
                     pass
 
