@@ -11,6 +11,12 @@ class get_data(object):
     def __init__(self):
         self.race_url_pattern = r'/race/\d+'
         self.init_race_url = 'https://db.netkeiba.com/'
+
+    # def main(self, start_year, start_mon, end_year, end_mon):
+    #     base_url = self.get_base_url(start_year, start_mon, end_year, end_mon)
+    #     race_urls = self.get_race_url(base_url)
+
+
     
     def get_base_url(self, start_year, start_mon, end_year, end_mon):
         url = f'https://db.netkeiba.com/?pid=race_list&word=&track%5B%5D=1&track%5B%5D=2&start_year={start_year}&start_mon={start_mon}&end_year={end_year}&end_mon={end_mon}&jyo%5B%5D=01&jyo%5B%5D=02&jyo%5B%5D=03&jyo%5B%5D=04&jyo%5B%5D=05&jyo%5B%5D=06&jyo%5B%5D=07&jyo%5B%5D=08&jyo%5B%5D=09&jyo%5B%5D=10&kyori_min=&kyori_max=&sort=date&list=100'
@@ -64,6 +70,21 @@ class get_data(object):
 
         return race_urls
     
+
+    def get_each_race(self, url):
+        response = requests.get(url)
+        html = response.content
+        soup = BeautifulSoup(html, 'html.parser')
+
+        df = self.get_race_table(soup)
+        info = self.get_info_table(soup)
+
+        df = self.concate_data(df, info)
+
+        df = self.clean(df)
+
+        return df
+    
     def get_race_table(self, soup):
         table = soup.find('table', class_='race_table_01')
         # テーブルのヘッダーを取得
@@ -100,10 +121,71 @@ class get_data(object):
 
         # DataFrameを作成
         df = pd.DataFrame(data, columns=headers)
+        df = df.loc[:, ['着順', '枠番', '馬番', '性齢', '斤量', 'タイム', '上り', '単勝', '人気', '馬体重']]
+
         df['horse_id'] = horse_ids
         df['jockey_id'] = jockey_ids
         df['trainer_id'] = trainer_ids
 
         return df
+    
+    
+    def get_info_table(self, soup):
+        race_info = soup.find('diary_snap').find('diary_snap_cut').find('span').text.strip()
+
+        length_type = race_info.split('\xa0/\xa0')[0]
+        weather = race_info.split('\xa0/\xa0')[1]
+        condition = race_info.split('\xa0/\xa0')[2]
+
+        cource_type = length_type[0]
+        length = re.findall(r'\d+', length_type)[0]
+        weather = weather.split(':')[1].strip()
+        condition = condition.split(':')[1].strip()
+
+        return [cource_type, length, weather, condition]
+    
+    def concate_data(self, df, info):
+        info_df = pd.DataFrame([])
+        info_df['cource_type'] = [info[0]] * len(df)
+        info_df['length'] = [info[1]] * len(df)
+        info_df['weather'] = [info[2]] * len(df)
+        info_df['condtion'] = [info[3]] * len(df)
+
+        df = pd.concat([df, info_df], axis=1)
+
+        return df
+    
+    def clean(self, df):
+        df['gender'] = df['性齢'].apply(self.get_gender) 
+        df['age'] = df['性齢'].apply(self.get_age)
+        df['weight'] = df['馬体重'].apply(self.get_weight)
+        df['weight_diff'] = df['馬体重'].apply(self.get_weight_diff)
+
+        return df
+
+
+    def get_gender(self, x):
+        gender = x[0]
+        return gender
+    
+    def get_age(self, x):
+        age = x[1]
+        return age
+
+    def get_weight(self, x):
+        match = re.match(r'(\d+)(\(\+\d+\))?', x)
+        weight = match.group(1) 
+        return weight
+    
+    def get_weight_diff(self, x):
+        match = re.match(r'(\d+)(\(\+\d+\))?', x)
+        try:
+            weight_diff = match.group(2).strip('()')
+        except:
+            weight_diff = 0
+            
+        return weight_diff
         
+
+                        
         
