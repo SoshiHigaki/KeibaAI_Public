@@ -4,6 +4,7 @@ import re
 import time
 from tqdm.notebook import tqdm
 import pandas as pd
+import numpy as np
 
 
 class get_data(object):
@@ -160,32 +161,57 @@ class get_data(object):
         df['age'] = df['性齢'].apply(self.get_age)
         df['weight'] = df['馬体重'].apply(self.get_weight)
         df['weight_diff'] = df['馬体重'].apply(self.get_weight_diff)
+        df = df.drop(['性齢', '馬体重'], axis=1)
+
+        df['time'] = df['タイム'].apply(self.get_second)
+        df = df.drop(['タイム'], axis=1)
 
         return df
 
 
     def get_gender(self, x):
-        gender = x[0]
+        try:
+            gender = x[0]
+        except:
+            gender = np.nan
         return gender
     
     def get_age(self, x):
-        age = x[1]
+        try:
+            age = x[1]
+        except:
+            age = np.nan
         return age
 
     def get_weight(self, x):
-        match = re.match(r'(\d+)(\(\+\d+\))?', x)
-        weight = match.group(1) 
+        try:
+            match = re.match(r'(\d+)(\(\+\d+\))?', x)
+            weight = match.group(1) 
+        except:
+            weight = np.nan
         return weight
     
     def get_weight_diff(self, x):
-        match = re.match(r'(\d+)(\(\+\d+\))?', x)
         try:
+            match = re.match(r'(\d+)(\(\+\d+\))?', x)
             weight_diff = match.group(2).strip('()')
         except:
             weight_diff = 0
             
         return weight_diff
         
+    def get_second(self, x):
+        try:
+            time_parts = x.split(':')
+            minutes = int(time_parts[0])
+            seconds = float(time_parts[1])
+
+            total_seconds = minutes * 60 + seconds
+        
+        except:
+            total_seconds = np.nan
+
+        return total_seconds
 
                         
         
