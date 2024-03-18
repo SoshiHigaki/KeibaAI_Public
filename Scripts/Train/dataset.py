@@ -3,8 +3,13 @@ import sklearn.preprocessing as sp
 import pickle
 import pandas as pd
 
+import warnings
+warnings.simplefilter('ignore', FutureWarning)
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self):
+    def __init__(self, device):
+
+        self.device = device
+
         self.type_categories = ['ダ', '芝']
         self.weather_categories = ['晴', '雨', '小雨', '小雪', '曇', '雪']
         self.condition_categories = ['良', '稍', '重', '不']
@@ -16,6 +21,25 @@ class Dataset(torch.utils.data.Dataset):
         self.sex_enc = sp.OneHotEncoder(categories=[self.sex_categories], handle_unknown='ignore')
 
         self.info_path = 'Data/Info/standardscaler.pkl'
+
+    def prepare(self, path):
+        df = pd.read_pickle(path)
+        df = df.drop(['race_id', 'horse_id', 'jockey_id', 'trainer_id', 'date'], axis=1)
+
+        one_hot_columns = ['type', 'weather', 'condition', 'sex']
+        one_hot_df = df.loc[:, one_hot_columns]
+        
+        numerical_columns = ['horse_number', 'weight_carried', 'length', 'age', 'weight', 'weight_difference', 'velocity']
+        numerical_df = df.loc[:, numerical_columns]
+
+        one_hot_data = self.one_hot(one_hot_df)
+
+        self.load_std()
+        numerical_data = self.transform_std(numerical_df)
+
+        self.df = pd.concat([numerical_data, one_hot_data], axis=1)
+
+
 
     def one_hot(self, df):
         type_data = self.type_enc.fit_transform(df[['type']])
@@ -36,6 +60,7 @@ class Dataset(torch.utils.data.Dataset):
         return df
     
     def fit_std(self, df):
+        df = df.loc[:, ['horse_number', 'weight_carried', 'length', 'age', 'weight', 'weight_difference', 'velocity']]
         self.std = sp.StandardScaler()
         self.std.fit(df)
 
@@ -48,4 +73,21 @@ class Dataset(torch.utils.data.Dataset):
 
     def transform_std(self, df):
         data = self.std.transform(df)
+        data = pd.DataFrame(data, columns=df.columns)
         return data
+    
+    def __getitem__(self, i):
+        input_data = torch.tensor(self.df.loc[i, ['horse_number', 'weight_carried', 'length', 'age', 'weight',
+                                        'weight_difference', 'type_ダ', 'type_芝', 'weather_晴',
+                                        'weather_雨', 'weather_小雨', 'weather_小雪', 'weather_曇', 'weather_雪',
+                                        'condition_良', 'condition_稍', 'condition_重', 'condition_不', 'sex_牡',
+                                        'sex_牝', 'sex_セ']]).to(self.device)
+        
+        output_data = torch.tensor(self.df.loc[i, ['velocity']]).to(self.device)
+
+        data = {'input':input_data, 'output':output_data}
+
+        return data
+
+    def __len__(self): 
+        return len(self.df)
