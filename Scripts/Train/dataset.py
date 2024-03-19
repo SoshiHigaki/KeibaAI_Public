@@ -5,6 +5,7 @@ import pandas as pd
 
 import warnings
 warnings.simplefilter('ignore', FutureWarning)
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, device):
 
@@ -24,6 +25,9 @@ class Dataset(torch.utils.data.Dataset):
 
     def prepare(self, path):
         df = pd.read_pickle(path)
+        df = df.dropna()
+        df = df.reset_index(drop=True)
+        
         df = df.drop(['race_id', 'horse_id', 'jockey_id', 'trainer_id', 'date'], axis=1)
 
         one_hot_columns = ['type', 'weather', 'condition', 'sex']
@@ -81,9 +85,9 @@ class Dataset(torch.utils.data.Dataset):
                                         'weight_difference', 'type_ダ', 'type_芝', 'weather_晴',
                                         'weather_雨', 'weather_小雨', 'weather_小雪', 'weather_曇', 'weather_雪',
                                         'condition_良', 'condition_稍', 'condition_重', 'condition_不', 'sex_牡',
-                                        'sex_牝', 'sex_セ']]).to(self.device)
+                                        'sex_牝', 'sex_セ']], dtype=torch.float32).to(self.device)
         
-        output_data = torch.tensor(self.df.loc[i, ['velocity']]).to(self.device)
+        output_data = torch.tensor(self.df.loc[i, ['velocity']], dtype=torch.float32).to(self.device)
 
         data = {'input':input_data, 'output':output_data}
 
