@@ -6,7 +6,7 @@ import pandas as pd
 import warnings
 warnings.simplefilter('ignore', FutureWarning)
 
-class Dataset(torch.utils.data.Dataset):
+class ve_dataset(torch.utils.data.Dataset):
     def __init__(self, device):
 
         self.device = device

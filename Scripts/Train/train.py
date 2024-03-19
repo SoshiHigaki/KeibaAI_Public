@@ -44,8 +44,8 @@ class Train(object):
         self.ve_net.train()
 
         for path in tqdm(paths):
-            self.dataset.prepare(path)
-            data_loader = DataLoader(self.dataset,
+            self.ve_dataset.prepare(path)
+            data_loader = DataLoader(self.ve_dataset,
                                      batch_size=self.batch_size,
                                      shuffle=True)
             path_list = path.split('/')
