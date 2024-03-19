@@ -19,7 +19,6 @@ class Train(object):
     def __init__(self, 
                  device):
         self.config = Config()
-
         self.device = device
 
         self.dataset = dataset.Dataset(self.device)
@@ -31,7 +30,13 @@ class Train(object):
         self.optimizer = torch.optim.Adam(self.ve_net.parameters(), lr=0.01)
 
         self.batch_size = 2**10
+
+        self.ve_net_model_path = 'Model/ve_net_model.pth'
+        self.ve_net_optimizer_path = 'Model/ve_net_optimizer.pth'
         self.log_folder = 'Log/'
+
+        self.ve_net.load_state_dict(torch.load(self.ve_net_model_path)) if os.path.exists(self.ve_net_model_path) else None
+        self.optimizer.load_state_dict(torch.load(self.ve_net_optimizer_path)) if os.path.exists(self.ve_net_optimizer_path) else None
 
     def train(self, paths, epochs):
         self.ve_net.train()
@@ -62,6 +67,6 @@ class Train(object):
                 
             history_df = pd.DataFrame({'epochs':list(range(1, len(history)+1, 1)), 'loss':history})
             history_df.to_pickle(log_path)
-            
-        return history
-                
+
+        torch.save(self.ve_net.state_dict(), self.ve_net_model_path)
+        torch.save(self.optimizer.state_dict(), self.ve_net_optimizer_path)    
