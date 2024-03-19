@@ -9,6 +9,8 @@ import os
 from Scripts.Train import model
 from Scripts.Train import dataset
 
+## standardscalerの設定値を調整してください
+
 
 class Config(object):
     def __init__(self):
@@ -21,7 +23,7 @@ class Train(object):
         self.config = Config()
         self.device = device
 
-        self.dataset = dataset.Dataset(self.device)
+        self.ve_dataset = dataset.ve_dataset(self.device)
 
         self.ve_net = model.VelocityEvaluationNetwork(self.config.ve_net_input_dim)
         self.ve_net.to(self.device)
