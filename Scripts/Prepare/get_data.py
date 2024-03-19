@@ -254,6 +254,11 @@ class get_data(object):
         
     def set_type(self, df):
 
+        df['race_id'] = df['race_id'].astype(str, errors='ignore')
+        df['horse_id'] = df['horse_id'].astype(str, errors='ignore')
+        df['jockey_id'] = df['jockey_id'].astype(str, errors='ignore')
+        df['trainer_id'] = df['trainer_id'].astype(str, errors='ignore')
+
         df['date'] = pd.to_datetime(df['date'], errors='ignore')
         df['horse_number'] = df['horse_number'].astype(int, errors='ignore')
         df['weight_carried'] = df['weight_carried'].astype(int, errors='ignore')
