@@ -86,13 +86,11 @@ class get_data(object):
                 norm_links.append(tmp)
 
             race_urls.extend(norm_links)
-
-
         return race_urls
     
 
     def get_each_race(self, url):
-        race_id =  re.findall(r'\d+', url)[0]
+        race_id =  url.split('/')[-2]
 
         response = requests.get(url)
         html = response.content
@@ -165,7 +163,7 @@ class get_data(object):
         type = length_type[0]
         length = re.findall(r'\d+', length_type)[0]
         weather = weather.split(':')[1].strip()
-        condition = condition.split(':')[1].strip()
+        condition = condition.split(':')[1].strip()[0]
 
         return [type, length, weather, condition]
     

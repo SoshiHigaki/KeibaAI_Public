@@ -11,6 +11,8 @@ class prepare(object):
 
         self.save_folder = 'Data/Race/'
 
+        self.test_ratio = 0.2
+
     
     def main(self, start_year, start_mon, end_year, end_mon):
         period = self.generate_year_month_list(start_year, start_mon, end_year, end_mon)
@@ -22,7 +24,13 @@ class prepare(object):
             df = self.gd.main(p[0], p[1], p[0], p[1])
             horse_ids.extend(list(df['horse_id']))
 
-            df.to_pickle(f'{folder_path}/{str(p[1]).zfill(2)}.pkl')
+            test_len = int(len(df) * self.test_ratio)
+
+            df_test = df.sample(test_len)
+            df_train = df.drop(df_test.index)
+
+            df_train.to_pickle(f'{folder_path}/Train/{str(p[1]).zfill(2)}.pkl')
+            df_test.to_pickle(f'{folder_path}/Test/{str(p[1]).zfill(2)}.pkl')
 
         horse_ids = list(set(horse_ids))
         self.gh.main(horse_ids)
