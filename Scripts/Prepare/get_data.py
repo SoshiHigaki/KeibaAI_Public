@@ -19,11 +19,13 @@ class get_data(object):
         race_urls = self.get_race_url(base_url)
 
         whole_df = pd.DataFrame([])
+        whole_return_df = pd.DataFrame([])
         for url in tqdm(race_urls, desc=f'{start_year}/{str(start_mon).zfill(2)}～{end_year}/{str(end_mon).zfill(2)}'):
             time.sleep(1)
             try:
-                df = self.get_each_race(url)
+                df, return_df = self.get_each_race(url)
                 whole_df = pd.concat([whole_df, df], axis=0)
+                whole_return_df = pd.concat([whole_return_df, return_df], axis=0)
             except Exception as e:
                 print(f'エラー : {url}')
 
@@ -32,7 +34,7 @@ class get_data(object):
         whole_df = self.set_type(whole_df)
         whole_df = whole_df.reset_index(drop=True)
         
-        return whole_df
+        return whole_df, return_df
 
     
     def get_base_url(self, start_year, start_mon, end_year, end_mon):
@@ -104,7 +106,9 @@ class get_data(object):
 
         df = self.concate_data(df, info, race_id, date)
 
-        return df
+        return_df = self.get_money_return(race_id, soup)
+
+        return df, return_df
     
     def get_race_table(self, soup):
         table = soup.find('table', class_='race_table_01')
@@ -151,7 +155,6 @@ class get_data(object):
         df['trainer_id'] = trainer_ids
 
         return df
-    
     
     def get_info_table(self, soup):
         race_info = soup.find('diary_snap').find('diary_snap_cut').find('span').text.strip()
@@ -271,3 +274,20 @@ class get_data(object):
         df['velocity'] = df['velocity'].astype(float, errors='ignore')
 
         return df
+    
+    def get_money_return(self, race_id, soup):
+        table = soup.find('table', class_='pay_table_01')
+        tmp = pd.DataFrame([])
+
+        horse_number = np.nan
+        money_return = np.nan
+        for tr in table.find_all('tr'):
+            if '単勝' in tr.text:
+                horse_number = int(tr.find_all('td')[0].text)
+                money_return = int(tr.find_all('td', attrs={'class':'txt_r'})[0].text.replace(',', ''))
+                break
+        tmp['race_id'] = [race_id]
+        tmp['horse_number'] = [horse_number]
+        tmp['money_return'] = [money_return]
+
+        return tmp
