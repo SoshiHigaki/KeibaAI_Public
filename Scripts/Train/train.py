@@ -91,7 +91,7 @@ class si_train(object):
 
         self.horse_past_number = self.si_dataset.horse_past_number
 
-        self.si_net = model.SpeedIndexNetwork(self.horse_past_number)
+        self.si_net = model.SpeedIndexNetwork(self.config.ve_net_input_dim + self.horse_past_number)
         self.si_net.to(self.device)
 
         self.criterion = nn.MSELoss()
@@ -127,9 +127,6 @@ class si_train(object):
                 for data in data_loader:
                     race_input, race_output, horse_input, horse_output = data['race_input'], data['race_output'], data['horse_input'], data['horse_output']
 
-                    race_model_output = self.ve_net(race_input)
-                    race_si = race_output - race_model_output
-
                     horse_input = torch.reshape(horse_input, (-1, self.config.ve_net_input_dim))
                     horse_output = torch.reshape(horse_output, (-1, 1))
  
@@ -139,9 +136,11 @@ class si_train(object):
                     horse_past_si = torch.where(torch.isnan(horse_past_si), torch.tensor(0.), horse_past_si)
                     horse_past_si = torch.reshape(horse_past_si, (-1, self.horse_past_number))
 
-                    si_model_output = self.si_net(horse_past_si)
+                    input_data = torch.cat((race_input, horse_past_si), dim=1)
 
-                    loss = self.criterion(race_si, si_model_output)
+                    si_model_output = self.si_net(input_data)
+
+                    loss = self.criterion(race_output, si_model_output)
 
                     epoch_loss += loss.item()
                     
