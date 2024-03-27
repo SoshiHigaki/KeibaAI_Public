@@ -8,6 +8,9 @@ import numpy as np
 from datetime import datetime
 import os
 
+import warnings
+warnings.simplefilter('ignore', FutureWarning)
+
 class get_horse_data(object):
     def __init__(self):
         self.init_url = 'https://db.netkeiba.com/horse/'
@@ -17,16 +20,19 @@ class get_horse_data(object):
     def main(self, horse_ids):
         for id in tqdm(horse_ids):
             time.sleep(1)
-            url = self.get_url(id)
-            df = self.get_each_data(url)
-            df = self.clean_horse_data(df)
-            df = self.get_columns(df)
-            df = self.set_type(df)
+            try:
+                url = self.get_url(id)
+                df = self.get_each_data(url)
+                df = self.clean_horse_data(df)
+                df = self.get_columns(df)
+                df = self.set_type(df)
 
-            path = f'{self.save_folder}{id}.pkl'
-            df.to_pickle(path)
+                path = f'{self.save_folder}{id}.pkl'
+                df.to_pickle(path)
+            except:
+                print(f'エラー : {url}')
         
-        return df
+    
 
     def get_url(self, horse_id):
         url = self.init_url + str(horse_id)
