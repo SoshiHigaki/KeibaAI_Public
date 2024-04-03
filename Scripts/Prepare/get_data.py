@@ -6,35 +6,57 @@ from tqdm.notebook import tqdm
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import random
 
 
-class get_data(object):
+class Get_Data(object):
     
     def __init__(self):
         self.race_url_pattern = r'/race/\d+'
         self.init_race_url = 'https://db.netkeiba.com/'
+        self.test_ratio = 0.2
 
     def main(self, start_year, start_mon, end_year, end_mon):
         base_url = self.get_base_url(start_year, start_mon, end_year, end_mon)
         race_urls = self.get_race_url(base_url)
 
-        whole_df = pd.DataFrame([])
+        test_size = int(len(race_urls) * self.test_ratio)
+        random.shuffle(race_urls)
+        train_race_urls = race_urls[test_size:]
+        test_race_urls = race_urls[:test_size]
+
         whole_return_df = pd.DataFrame([])
-        for url in tqdm(race_urls, desc=f'{start_year}/{str(start_mon).zfill(2)}～{end_year}/{str(end_mon).zfill(2)}'):
-            time.sleep(1)
+        train_whole_df = pd.DataFrame([])
+        for url in tqdm(train_race_urls, desc=f'{start_year}/{str(start_mon).zfill(2)}～{end_year}/{str(end_mon).zfill(2)} : Train'):
+            time.sleep(0.5)
             try:
                 df, return_df = self.get_each_race(url)
-                whole_df = pd.concat([whole_df, df], axis=0)
+                train_whole_df = pd.concat([train_whole_df, df], axis=0)
                 whole_return_df = pd.concat([whole_return_df, return_df], axis=0)
             except Exception as e:
                 print(f'エラー : {url}')
 
-        whole_df = self.clean(whole_df)
-        whole_df = self.get_columns(whole_df)
-        whole_df = self.set_type(whole_df)
-        whole_df = whole_df.reset_index(drop=True)
+        test_whole_df = pd.DataFrame([])
+        for url in tqdm(test_race_urls, desc=f'{start_year}/{str(start_mon).zfill(2)}～{end_year}/{str(end_mon).zfill(2)} : Test'):
+            time.sleep(0.5)
+            try:
+                df, return_df = self.get_each_race(url)
+                test_whole_df = pd.concat([test_whole_df, df], axis=0)
+                whole_return_df = pd.concat([whole_return_df, return_df], axis=0)
+            except Exception as e:
+                print(f'エラー : {url}')
+
+        train_whole_df = self.clean(train_whole_df)
+        train_whole_df = self.get_columns(train_whole_df)
+        train_whole_df = self.set_type(train_whole_df)
+        train_whole_df = train_whole_df.reset_index(drop=True)
+
+        test_whole_df = self.clean(test_whole_df)
+        test_whole_df = self.get_columns(test_whole_df)
+        test_whole_df = self.set_type(test_whole_df)
+        test_whole_df = test_whole_df.reset_index(drop=True)
         
-        return whole_df, return_df
+        return train_whole_df, test_whole_df, whole_return_df
 
     
     def get_base_url(self, start_year, start_mon, end_year, end_mon):
@@ -262,7 +284,7 @@ class get_data(object):
 
         df['date'] = pd.to_datetime(df['date'], errors='ignore')
         df['horse_number'] = df['horse_number'].astype(int, errors='ignore')
-        df['weight_carried'] = df['weight_carried'].astype(int, errors='ignore')
+        df['weight_carried'] = df['weight_carried'].astype(float, errors='ignore')
         df['type'] = df['type'].astype(str, errors='ignore')
         df['length'] = df['length'].astype(int, errors='ignore')
         df['weather'] = df['weather'].astype(str, errors='ignore')

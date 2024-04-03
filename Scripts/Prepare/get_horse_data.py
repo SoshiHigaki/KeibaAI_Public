@@ -11,7 +11,7 @@ import os
 import warnings
 warnings.simplefilter('ignore', FutureWarning)
 
-class get_horse_data(object):
+class Get_Horse_Data(object):
     def __init__(self):
         self.init_url = 'https://db.netkeiba.com/horse/'
         self.save_folder = 'Data/Horse/'
@@ -19,7 +19,7 @@ class get_horse_data(object):
 
     def main(self, horse_ids):
         for id in tqdm(horse_ids):
-            time.sleep(1)
+            time.sleep(0.5)
             try:
                 url = self.get_url(id)
                 df = self.get_each_data(url)
@@ -150,7 +150,7 @@ class get_horse_data(object):
     def set_type(self, df):
         df['date'] = pd.to_datetime(df['date'], errors='ignore')
         df['horse_number'] = df['horse_number'].astype(int, errors='ignore')
-        df['weight_carried'] = df['weight_carried'].astype(int, errors='ignore')
+        df['weight_carried'] = df['weight_carried'].astype(float, errors='ignore')
         df['type'] = df['type'].astype(str, errors='ignore')
         df['length'] = df['length'].astype(int, errors='ignore')
         df['weather'] = df['weather'].astype(str, errors='ignore')
