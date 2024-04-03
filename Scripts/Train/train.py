@@ -6,152 +6,214 @@ from torch.utils.data import DataLoader
 import pandas as pd
 import os
 
-from Scripts.Train import model
+from Scripts.Train import config 
 from Scripts.Train import dataset
-
-## standardscalerの設定値を調整してください
-
-class Config(object):
-    def __init__(self):
-        self.ve_net_input_dim = 21
-
-        self.ve_net_model_path = 'Model/ve_net_model.pth'
-        self.ve_net_optimizer_path = 'Model/ve_net_optimizer.pth'
-        self.ve_log_folder = 'Log/EV/'
-
-        self.si_net_model_path = 'Model/si_net_model.pth'
-        self.si_net_optimizer_path = 'Model/si_net_optimizer.pth'
-        self.si_log_folder = 'Log/SI/'
+from Scripts.Train import model
+from Scripts.Train import early_stopping
 
 
-class ev_train(object):
+class VEN_Train(object):
     def __init__(self, 
                  device):
-        self.config = Config()
+        
+        self.batch_size = 2**10
+        
+        self.config = config.Train_Config()
         self.device = device
 
-        self.ve_dataset = dataset.ve_dataset(self.device)
+        self.train_ven_dataset = dataset.VEN_Dataset(self.device)
+        self.test_ven_dataset = dataset.VEN_Dataset(self.device)
 
-        self.ve_net = model.VelocityEvaluationNetwork(self.config.ve_net_input_dim)
-        self.ve_net.to(self.device)
+        self.ven_model = model.VelocityEvaluationNetwork(self.config.ven_input_dim, 1)
+        self.ven_model.to(self.device)
 
-        self.criterion = nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.ve_net.parameters(), lr=0.01)
+        self.ven_criterion = nn.MSELoss()
+        self.ven_optimizer = torch.optim.Adam(self.ven_model.parameters(), lr=0.01)
 
-        self.batch_size = 2**10
+        self.ven_model_path = self.config.ven_model_path
+        self.ven_optimizer_path = self.config.ven_optimizer_path
+        self.ven_log_folder = self.config.ven_log_folder
 
-        self.ve_net_model_path = self.config.ve_net_model_path
-        self.ve_net_optimizer_path = self.config.ve_net_optimizer_path
-        self.ve_log_folder = self.config.ve_log_folder
+        self.ven_model.load_state_dict(torch.load(self.ven_model_path)) if os.path.exists(self.ven_model_path) else None
+        self.ven_optimizer.load_state_dict(torch.load(self.ven_optimizer_path)) if os.path.exists(self.ven_optimizer_path) else None
 
-        self.ve_net.load_state_dict(torch.load(self.ve_net_model_path)) if os.path.exists(self.ve_net_model_path) else None
-        self.optimizer.load_state_dict(torch.load(self.ve_net_optimizer_path)) if os.path.exists(self.ve_net_optimizer_path) else None
+        self.early_stopping = early_stopping.EarlyStopping(threshold=10.0*10**(-3))
 
-    def train(self, paths, epochs):
-        self.ve_net.train()
+    def train(self, train_paths, test_paths, epochs):
+        self.ven_model.train()
 
-        for path in tqdm(paths):
-            self.ve_dataset.prepare(path)
-            data_loader = DataLoader(self.ve_dataset,
-                                     batch_size=self.batch_size,
-                                     shuffle=True)
-            path_list = path.split('/')
-            log_path = f'{self.ve_log_folder}/{path_list[-2]}-{path_list[-1]}'
-            history = list(pd.read_pickle(log_path)['loss']) if os.path.exists(log_path) else []
-            for _ in tqdm(range(epochs), leave=False):
+        for train_path, test_path in tqdm(zip(train_paths, test_paths), total=len(train_paths)):
+            self.train_ven_dataset.prepare(train_path)
+            train_data_loader = DataLoader(self.train_ven_dataset,
+                                            batch_size=self.batch_size,
+                                            shuffle=True)
+            
+            self.test_ven_dataset.prepare(test_path)
+            test_data_loader = DataLoader(self.test_ven_dataset,
+                                            batch_size=self.batch_size,
+                                            shuffle=True)
+            
+            path_list = train_path.split('/')
+            log_path = f'{self.ven_log_folder}/{path_list[-2]}-{path_list[-1]}'
+            root, old_extension = os.path.splitext(log_path)
+            log_path = root + '.csv'
+
+            self.early_stopping.initialize()
+            for _ in tqdm(range(epochs), leave=False, desc=f'{train_path}'):
                 epoch_loss = 0
-                for data in data_loader:
+                self.ven_model.train()
+                for data in train_data_loader:
                     input_data, output_data = data['input'], data['output']
 
-                    outputs = self.ve_net(input_data)
-                    loss = self.criterion(outputs, output_data)
+                    outputs = self.ven_model(input_data)
+                    loss = self.ven_criterion(outputs, output_data)
 
                     epoch_loss += loss.item()
                     
+                    self.ven_optimizer.zero_grad()
                     loss.backward()
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
+                    self.ven_optimizer.step()
 
-                history.append(epoch_loss / len(data_loader))
-                
-            history_df = pd.DataFrame({'epochs':list(range(1, len(history)+1, 1)), 'loss':history})
-            history_df.to_pickle(log_path)
+                train_loss = epoch_loss / len(train_data_loader)
 
-        torch.save(self.ve_net.state_dict(), self.ve_net_model_path)
-        torch.save(self.optimizer.state_dict(), self.ve_net_optimizer_path)   
+                epoch_loss = 0
+                self.ven_model.eval()
+                with torch.no_grad():
+                    for data in test_data_loader:
+                        input_data, output_data = data['input'], data['output']
+
+                        outputs = self.ven_model(input_data)
+                        loss = self.ven_criterion(outputs, output_data)
+
+                        epoch_loss += loss.item()
+                        
+                test_loss = epoch_loss / len(test_data_loader)
+
+                self.save_log(log_path,
+                              train_loss,
+                              test_loss)
+
+                if self.early_stopping(test_loss):
+                    print('Early Stop')
+                    break
+
+                torch.save(self.ven_model.state_dict(), self.ven_model_path)
+                torch.save(self.ven_optimizer.state_dict(), self.ven_optimizer_path) 
+
+    def save_log(self,
+                 log_path,
+                 
+                 train_loss,
+                 test_loss):
+        tmp_log = pd.DataFrame([])
+        tmp_log['train_loss'] = [train_loss]
+        tmp_log['test_loss'] = [test_loss]
+
+        mode = 'a' if os.path.exists(log_path) else 'w'
+        header = False if os.path.exists(log_path) else True
+
+        tmp_log.to_csv(log_path, mode=mode, index=False, header=header)
 
 
-class si_train(object):
+class SIN_Train(object):
     def __init__(self, 
                  device):
-        self.config = Config()
+        
+        self.batch_size = 2**10
+        
+        self.config = config.Train_Config()
         self.device = device
 
-        self.si_dataset = dataset.si_dataset(self.device)
+        self.train_sin_dataset = dataset.SIN_Dataset(self.device, self.batch_size)
+        self.test_sin_dataset = dataset.SIN_Dataset(self.device, self.batch_size)
 
-        self.horse_past_number = self.si_dataset.horse_past_number
+        self.sin_model = model.SpeedIndexNetwork(self.config.sin_input_dim, 1)
+        self.sin_model.to(self.device)
 
-        self.si_net = model.SpeedIndexNetwork(self.config.ve_net_input_dim + self.horse_past_number)
-        self.si_net.to(self.device)
+        self.sin_criterion = nn.MSELoss()
+        self.sin_optimizer = torch.optim.Adam(self.sin_model.parameters(), lr=0.01)
 
-        self.criterion = nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.si_net.parameters(), lr=0.01)
+        self.sin_model_path = self.config.sin_model_path
+        self.sin_optimizer_path = self.config.sin_optimizer_path
+        self.sin_log_folder = self.config.sin_log_folder
 
-        self.batch_size = 2**10
+        self.sin_model.load_state_dict(torch.load(self.sin_model_path)) if os.path.exists(self.sin_model_path) else None
+        self.sin_optimizer.load_state_dict(torch.load(self.sin_optimizer_path)) if os.path.exists(self.sin_optimizer_path) else None
 
-        self.si_net_model_path = self.config.si_net_model_path
-        self.si_net_optimizer_path = self.config.si_net_optimizer_path
-        self.si_log_folder = self.config.si_log_folder
+        self.early_stopping = early_stopping.EarlyStopping(threshold=5.0*10**(-3))
 
-        self.si_net.load_state_dict(torch.load(self.si_net_model_path)) if os.path.exists(self.si_net_model_path) else None
-        self.optimizer.load_state_dict(torch.load(self.si_net_optimizer_path)) if os.path.exists(self.si_net_optimizer_path) else None
+    def train(self, train_paths, test_paths, epochs):
+        self.sin_model.train()
 
-        self.ve_net = model.VelocityEvaluationNetwork(self.config.ve_net_input_dim)
-        self.ve_net.to(self.device)
-        self.ve_net.load_state_dict(torch.load(self.config.ve_net_model_path)) if os.path.exists(self.config.ve_net_model_path) else None
-        self.ve_net.eval()
+        for train_path, test_path in tqdm(zip(train_paths, test_paths), total=len(train_paths)):
 
-    def train(self, paths, epochs):
-        self.si_net.train()
+            self.train_sin_dataset.prepare(train_path)
+            train_data_loader = DataLoader(self.train_sin_dataset,
+                                            batch_size=self.batch_size,
+                                            shuffle=True)
+            
+            self.test_sin_dataset.prepare(test_path)
+            test_data_loader = DataLoader(self.test_sin_dataset,
+                                            batch_size=self.batch_size,
+                                            shuffle=True)
+            
+            path_list = train_path.split('/')
+            log_path = f'{self.sin_log_folder}/{path_list[-2]}-{path_list[-1]}'
+            root, old_extension = os.path.splitext(log_path)
+            log_path = root + '.csv'
 
-        for path in tqdm(paths):
-            self.si_dataset.prepare(path)
-            data_loader = DataLoader(self.si_dataset,
-                                     batch_size=self.batch_size,
-                                     shuffle=True)
-            path_list = path.split('/')
-            log_path = f'{self.si_log_folder}/{path_list[-2]}-{path_list[-1]}'
-            history = list(pd.read_pickle(log_path)['loss']) if os.path.exists(log_path) else []
-            for _ in tqdm(range(epochs), leave=False):
+            self.early_stopping.initialize()
+            for _ in tqdm(range(epochs), leave=False, desc=f'{train_path}'):
                 epoch_loss = 0
-                for data in data_loader:
-                    race_input, race_output, horse_input, horse_output = data['race_input'], data['race_output'], data['horse_input'], data['horse_output']
+                self.sin_model.train()
+                for data in train_data_loader:
+                    input_data, output_data = data['input'], data['output']
 
-                    horse_input = torch.reshape(horse_input, (-1, self.config.ve_net_input_dim))
-                    horse_output = torch.reshape(horse_output, (-1, 1))
- 
-                    horse_model_output = self.ve_net(horse_input)
-
-                    horse_past_si = horse_output - horse_model_output
-                    horse_past_si = torch.where(torch.isnan(horse_past_si), torch.tensor(0.), horse_past_si)
-                    horse_past_si = torch.reshape(horse_past_si, (-1, self.horse_past_number))
-
-                    input_data = torch.cat((race_input, horse_past_si), dim=1)
-
-                    si_model_output = self.si_net(input_data)
-
-                    loss = self.criterion(race_output, si_model_output)
+                    outputs = self.sin_model(input_data)
+                    loss = self.sin_criterion(outputs, output_data)
 
                     epoch_loss += loss.item()
                     
+                    self.sin_optimizer.zero_grad()
                     loss.backward()
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
+                    self.sin_optimizer.step()
 
-                history.append(epoch_loss / len(data_loader))
-                
-            history_df = pd.DataFrame({'epochs':list(range(1, len(history)+1, 1)), 'loss':history})
-            history_df.to_pickle(log_path)
+                train_loss = epoch_loss / len(train_data_loader)
 
-        torch.save(self.si_net.state_dict(), self.si_net_model_path)
-        torch.save(self.optimizer.state_dict(), self.si_net_optimizer_path)   
+                epoch_loss = 0
+                self.sin_model.eval()
+                with torch.no_grad():
+                    for data in test_data_loader:
+                        input_data, output_data = data['input'], data['output']
+
+                        outputs = self.sin_model(input_data)
+                        loss = self.sin_criterion(outputs, output_data)
+
+                        epoch_loss += loss.item()
+                        
+                test_loss = epoch_loss / len(test_data_loader)
+
+                self.save_log(log_path,
+                              train_loss,
+                              test_loss)
+
+                if self.early_stopping(test_loss):
+                    print('Early Stop')
+                    break
+
+                torch.save(self.sin_model.state_dict(), self.sin_model_path)
+                torch.save(self.sin_optimizer.state_dict(), self.sin_optimizer_path) 
+
+    def save_log(self,
+                 log_path,
+                 
+                 train_loss,
+                 test_loss):
+        tmp_log = pd.DataFrame([])
+        tmp_log['train_loss'] = [train_loss]
+        tmp_log['test_loss'] = [test_loss]
+
+        mode = 'a' if os.path.exists(log_path) else 'w'
+        header = False if os.path.exists(log_path) else True
+
+        tmp_log.to_csv(log_path, mode=mode, index=False, header=header)

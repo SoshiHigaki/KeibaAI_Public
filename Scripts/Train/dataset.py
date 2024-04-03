@@ -1,77 +1,41 @@
 import torch
-import sklearn.preprocessing as sp
+from tqdm.notebook import tqdm
 import pickle
 import pandas as pd
 import numpy as np
+import os
+from torch.utils.data import DataLoader
+
+from Scripts.Train import config 
+from Scripts.Train import model
 
 import warnings
 warnings.simplefilter('ignore', FutureWarning)
 
-class Config(object):
-    def __init__(self):
-        self.type_categories = ['ダ', '芝']
-        self.weather_categories = ['晴', '雨', '小雨', '小雪', '曇', '雪']
-        self.condition_categories = ['良', '稍', '重', '不']
-        self.sex_categories = ['牡', '牝', 'セ']
-
-        self.type_enc = sp.OneHotEncoder(categories=[self.type_categories], handle_unknown='ignore')
-        self.weather_enc = sp.OneHotEncoder(categories=[self.weather_categories], handle_unknown='ignore')
-        self.condition_enc = sp.OneHotEncoder(categories=[self.condition_categories], handle_unknown='ignore')
-        self.sex_enc = sp.OneHotEncoder(categories=[self.sex_categories], handle_unknown='ignore')
-
-        self.drop_columns = ['race_id', 'horse_id', 'jockey_id', 'trainer_id', 'date']
-        self.one_hot_columns = ['type', 'weather', 'condition', 'sex']
-        self.numerical_columns = ['horse_number', 'weight_carried', 'length', 'age', 'weight', 'weight_difference', 'velocity']
-
-        self.input_columns = ['horse_number', 'weight_carried', 'length', 'age', 'weight',
-                                'weight_difference', 'type_ダ', 'type_芝', 'weather_晴',
-                                'weather_雨', 'weather_小雨', 'weather_小雪', 'weather_曇', 'weather_雪',
-                                'condition_良', 'condition_稍', 'condition_重', 'condition_不', 'sex_牡',
-                                'sex_牝', 'sex_セ']
-        self.output_columns = ['velocity']
-
-        self.info_path = 'Data/Info/standardscaler.pkl'
-
-        self.horse_past_number = 5
-        self.horse_folder = 'Data/Horse/'
-
-    def fit_std(self, df):
-        df = df.loc[:, ['horse_number', 'weight_carried', 'length', 'age', 'weight', 'weight_difference', 'velocity']]
-        self.std = sp.StandardScaler()
-        self.std.fit(df)
-
-        with open(self.info_path, 'wb') as file:
-            pickle.dump(self.std, file)
-
-class ve_dataset(torch.utils.data.Dataset):
+class VEN_Dataset(torch.utils.data.Dataset):
     def __init__(self, device):
 
         self.device = device
-
-        self.config = Config()
+        self.config = config.Dataset_Config()
+        
         self.type_enc = self.config.type_enc
         self.weather_enc = self.config.weather_enc
         self.condition_enc = self.config.condition_enc
         self.sex_enc = self.config.sex_enc
 
-        self.drop_columns = self.config.drop_columns
         self.one_hot_columns = self.config.one_hot_columns
         self.numerical_columns = self.config.numerical_columns
 
-        self.input_columns = self.config.input_columns
+        self.input_columns = self.config.ven_input_columns
         self.output_columns = self.config.output_columns
 
-        self.info_path = self.config.info_path
-
-        self.load_std()
-
     def prepare(self, path):
+
         df = pd.read_pickle(path)
         df = df.dropna()
         df = df.reset_index(drop=True)
+        df['month'] = df['date'].apply(self.get_month)
         
-        df = df.drop(self.drop_columns, axis=1)
-
         one_hot_df = df.loc[:, self.one_hot_columns]
         numerical_df = df.loc[:, self.numerical_columns]
 
@@ -79,6 +43,8 @@ class ve_dataset(torch.utils.data.Dataset):
         numerical_data = self.transform_std(numerical_df)
 
         self.df = pd.concat([numerical_data, one_hot_data], axis=1)
+        self.df = self.df.astype(float)
+
 
     def one_hot(self, df):
         type_data = self.type_enc.fit_transform(df[['type']])
@@ -98,18 +64,200 @@ class ve_dataset(torch.utils.data.Dataset):
 
         return df
 
-    def load_std(self):
-        with open(self.info_path, 'rb') as file:
-            self.std = pickle.load(file)
-
     def transform_std(self, df):
-        data = self.std.transform(df)
-        data = pd.DataFrame(data, columns=df.columns)
+        data = df
         return data
     
+    def get_month(self, x):
+        month = x.month
+        return month
+    
     def __getitem__(self, i):
-        input_data = torch.tensor(self.df.loc[i, self.input_columns], dtype=torch.float32).to(self.device)
+        input_data = torch.tensor(self.df.loc[i, self.input_columns].values, dtype=torch.float32).to(self.device)
+        output_data = torch.tensor(self.df.loc[i, self.output_columns].values, dtype=torch.float32).to(self.device)
+
+        data = {'input':input_data, 'output':output_data}
+
+        return data
+
+    def __len__(self): 
+        return len(self.df)
+    
+
+class SIN_Dataset(torch.utils.data.Dataset):
+    def __init__(self, device, batchsize):
+
+        self.device = device
+        self.batchsize = batchsize
+
+        self.config = config.Dataset_Config()
+
+        self.horse_dataset = Horse_Dataset(self.device)
+        self.race_dataset = Race_Dataset(self.device)
+
+        self.jockey_input_columns = self.config.sin_jockey_input_columns
+        self.jockey_folder = self.config.jockey_folder
+
+        self.horse_input_columns = [f'past_{i+1}' for i in range(self.horse_dataset.horse_past_number)]
+        self.input_columns = [f'past_{i+1}' for i in range(self.horse_dataset.horse_past_number)] + self.jockey_input_columns
+        self.output_columns = ['race']
+
+        self.train_config = config.Train_Config()
+        self.ven_model = model.VelocityEvaluationNetwork(len(self.config.ven_input_columns), 1)
+        self.ven_model.to(self.device)
+        self.ven_model.load_state_dict(torch.load(self.train_config.ven_model_path)) if os.path.exists(self.train_config.ven_model_path) else None
+
+    def prepare(self, path):
+        df = pd.read_pickle(path)
+        df = df.dropna()
+        df = df.reset_index(drop=True)
+
+        df = self.jockey_data(df)
+
+        jockey_df = df.loc[:, self.jockey_input_columns]
+
+        self.race_dataset.prepare(df)
+        self.horse_dataset.prepare(df)
+
+        race_data_loader = DataLoader(self.race_dataset,
+                                      batch_size=self.batchsize,
+                                      shuffle=False)
+
+        horse_data_loader = DataLoader(self.horse_dataset,
+                                       batch_size=self.batchsize,
+                                       shuffle=False)
         
+        self.ven_model = model.VelocityEvaluationNetwork(len(self.config.ven_input_columns), 1)
+        self.ven_model.to(self.device)
+        self.ven_model.load_state_dict(torch.load(self.train_config.ven_model_path)) if os.path.exists(self.train_config.ven_model_path) else None
+        
+        self.ven_model.eval()
+        race_tensor = torch.tensor([]).to(self.device)
+        with torch.no_grad():
+            for data in race_data_loader:
+                input_data, output_data = data['input'], data['output']
+
+                output_data = torch.squeeze(output_data)
+                outputs = torch.squeeze(self.ven_model(input_data))
+
+                race_si = output_data - outputs
+                race_tensor = torch.cat((race_tensor, race_si), dim=0)
+
+        race_tensor = race_tensor.detach().cpu().numpy()
+        race_df = pd.DataFrame(race_tensor)
+        race_df.columns = self.output_columns
+
+        horse_tensor = torch.tensor([]).to(self.device)
+        with torch.no_grad():
+            for data in horse_data_loader:
+                input_data, output_data = data['input'], data['output']
+
+                output_data = torch.squeeze(output_data)
+                outputs = torch.squeeze(self.ven_model(input_data))
+
+                horse_si = output_data - outputs
+                horse_tensor = torch.cat((horse_tensor, horse_si), dim=0)
+    
+        horse_tensor = torch.reshape(horse_tensor, (-1, self.horse_dataset.horse_past_number))
+        horse_tensor = horse_tensor.detach().cpu().numpy()
+
+        horse_df = pd.DataFrame(horse_tensor).apply(self.horse_fillna, axis=1)
+        horse_df.columns = self.horse_input_columns
+
+        self.df = pd.concat([race_df, horse_df, jockey_df], axis=1)
+        self.df = self.df.dropna()
+        self.df = self.df.reset_index(drop=True)
+
+    def jockey_data(self, df):
+        year = list(df['date'].apply(self.get_year))[0]
+        jockey_df = pd.read_pickle(self.jockey_folder + f'{year-1}.pkl')
+
+        df = pd.merge(df, jockey_df, on='jockey_id', how='left')
+        df = df.fillna(0)
+
+        return df
+         
+    def get_year(self, x):
+        return x.year
+        
+
+    def horse_fillna(self, row):
+        row_mean = row.mean()
+        return row.fillna(row_mean)
+
+    def __getitem__(self, i):
+        input_data = torch.tensor(self.df.loc[i, self.input_columns].values, dtype=torch.float32).to(self.device)
+        output_data = torch.tensor(self.df.loc[i, self.output_columns].values, dtype=torch.float32).to(self.device)
+
+        data = {'input':input_data, 'output':output_data}
+
+        return data
+
+    def __len__(self): 
+        return len(self.df)
+    
+
+class Race_Dataset(object):
+    def __init__(self, device):
+        self.device = device
+        
+        self.config = config.Dataset_Config()
+        
+        self.type_enc = self.config.type_enc
+        self.weather_enc = self.config.weather_enc
+        self.condition_enc = self.config.condition_enc
+        self.sex_enc = self.config.sex_enc
+
+        self.one_hot_columns = self.config.one_hot_columns
+        self.numerical_columns = self.config.numerical_columns
+
+        self.input_columns = self.config.ven_input_columns
+        self.output_columns = self.config.output_columns
+
+    def prepare(self, df):
+        self.df = df
+        df['month'] = df['date'].apply(self.get_month)
+
+        one_hot_df = self.df.loc[:, self.one_hot_columns]
+        numerical_df = self.df.loc[:, self.numerical_columns]
+
+        one_hot_data = self.one_hot(one_hot_df)
+        numerical_data = self.transform_std(numerical_df)
+
+        self.df = pd.concat([numerical_data, one_hot_data], axis=1)
+        self.df = self.df.astype(float)
+
+    def one_hot(self, df):
+        type_data = self.type_enc.fit_transform(df[['type']])
+        type_df = pd.DataFrame(type_data.toarray(), columns=self.type_enc.get_feature_names_out(['type']))
+
+        weather_data = self.weather_enc.fit_transform(df[['weather']])
+        weather_df = pd.DataFrame(weather_data.toarray(), columns=self.weather_enc.get_feature_names_out(['weather']))
+
+        condition_data = self.condition_enc.fit_transform(df[['condition']])
+        condition_df = pd.DataFrame(condition_data.toarray(), columns=self.condition_enc.get_feature_names_out(['condition']))
+
+        sex_data = self.sex_enc.fit_transform(df[['sex']])
+        sex_df = pd.DataFrame(sex_data.toarray(), columns=self.sex_enc.get_feature_names_out(['sex']))
+
+        df = pd.concat([df, type_df, weather_df, condition_df, sex_df], axis=1)
+        df = df.drop(self.one_hot_columns, axis=1)
+
+        return df
+    
+    def transform_std(self, df):
+        # data = self.std.transform(df)
+        # data = pd.DataFrame(data, columns=df.columns)
+        data = df
+        return data
+    
+    def get_month(self, x):
+        month = x.month
+        return month
+    
+    def __getitem__(self, i):
+
+        input_data = torch.tensor(self.df.loc[i, self.input_columns], dtype=torch.float32).to(self.device)
         output_data = torch.tensor(self.df.loc[i, self.output_columns], dtype=torch.float32).to(self.device)
 
         data = {'input':input_data, 'output':output_data}
@@ -120,78 +268,63 @@ class ve_dataset(torch.utils.data.Dataset):
         return len(self.df)
     
 
-class si_dataset(torch.utils.data.Dataset):
+class Horse_Dataset(object):
     def __init__(self, device):
-
         self.device = device
-
-        self.config = Config()
+        
+        self.config = config.Dataset_Config()
+        
         self.type_enc = self.config.type_enc
         self.weather_enc = self.config.weather_enc
         self.condition_enc = self.config.condition_enc
         self.sex_enc = self.config.sex_enc
 
-        self.drop_columns = self.config.drop_columns
         self.one_hot_columns = self.config.one_hot_columns
         self.numerical_columns = self.config.numerical_columns
 
-        self.input_columns = self.config.input_columns
+        self.input_columns = self.config.ven_input_columns
         self.output_columns = self.config.output_columns
-
-        self.info_path = self.config.info_path
 
         self.horse_past_number = self.config.horse_past_number
         self.horse_folder = self.config.horse_folder
 
-        self.load_std()
+    def prepare(self, df):  
+        self.df = df
+        self.make_horse_df()
 
-    def prepare(self, path):
-        dates, horse_ids = self.prepare_race(path)
-        self.prepare_horse(dates, horse_ids)
 
-    def prepare_race(self, path):
-        race_df = pd.read_pickle(path)
-        race_df = race_df.dropna()
-        race_df = race_df.reset_index(drop=True)
+    def make_horse_df(self):
+        self.horse_df = self.df.apply(self.get_past_race, axis=1)
+        self.horse_df = pd.concat(list(self.horse_df), ignore_index=True).reset_index(drop=True)
 
-        dates = list(race_df['date'])
-        horse_ids = list(race_df['horse_id'])
-        
-        race_df = race_df.drop(self.drop_columns, axis=1)
-
-        one_hot_df = race_df.loc[:, self.one_hot_columns]
-        numerical_df = race_df.loc[:, self.numerical_columns]
+        one_hot_df = self.horse_df.loc[:, self.one_hot_columns]
+        numerical_df = self.horse_df.loc[:, self.numerical_columns]
 
         one_hot_data = self.one_hot(one_hot_df)
         numerical_data = self.transform_std(numerical_df)
 
-        self.race_df = pd.concat([numerical_data, one_hot_data], axis=1)
+        self.horse_df = pd.concat([numerical_data, one_hot_data], axis=1)
+        self.horse_df = self.horse_df.astype(float)
 
-        return dates, horse_ids
+    def get_past_race(self, row):
+        horse_id = row['horse_id']
+        date = row['date']
+
+        path = f'{self.horse_folder}/{horse_id}.pkl'
+        df = pd.read_pickle(path)
+        df['month'] = df['date'].apply(self.get_month)
+
+        df = df.loc[df['date'] < date].reset_index(drop=True)
+        df = self.adjust_dataframe_length(df)
+
+        df = df.reset_index(drop=True)
+        return df
+
+
+    def get_month(self, x):
+        month = x.month
+        return month
     
-    def prepare_horse(self, date, horse_ids):
-        self.horse_data = []
-        for d, id in zip(date, horse_ids):
-            path = f'{self.horse_folder}/{id}.pkl'
-            df = pd.read_pickle(path)
-            df = df.loc[df['date'] < d].reset_index(drop=True)
-            df = self.adjust_dataframe_length(df)
-            df = df.reset_index(drop=True)
-
-            df = df.drop(['date'], axis=1)
-
-            one_hot_df = df.loc[:, self.one_hot_columns]
-            
-            numerical_df = df.loc[:, self.numerical_columns]
-
-            one_hot_data = self.one_hot(one_hot_df)
-            numerical_data = self.transform_std(numerical_df)
-
-            df = pd.concat([numerical_data, one_hot_data], axis=1)
-
-            self.horse_data.append(df)
-
-
     def adjust_dataframe_length(self, df):
         current_length = len(df)
 
@@ -203,7 +336,7 @@ class si_dataset(torch.utils.data.Dataset):
             df = pd.concat([df, pd.concat([nan_rows] * (self.config.horse_past_number - current_length), ignore_index=True)])  # nより小さい場合はNaNで埋める
 
         return df
-
+    
     def one_hot(self, df):
         type_data = self.type_enc.fit_transform(df[['type']])
         type_df = pd.DataFrame(type_data.toarray(), columns=self.type_enc.get_feature_names_out(['type']))
@@ -221,26 +354,21 @@ class si_dataset(torch.utils.data.Dataset):
         df = df.drop(self.one_hot_columns, axis=1)
 
         return df
-
-    def load_std(self):
-        with open(self.info_path, 'rb') as file:
-            self.std = pickle.load(file)
-
+    
     def transform_std(self, df):
-        data = self.std.transform(df)
-        data = pd.DataFrame(data, columns=df.columns)
+        # data = self.std.transform(df)
+        # data = pd.DataFrame(data, columns=df.columns)
+        data = df
         return data
     
     def __getitem__(self, i):
-        race_input = torch.tensor(self.race_df.loc[i, self.input_columns], dtype=torch.float32).to(self.device)
-        race_output = torch.tensor(self.race_df.loc[i, self.output_columns], dtype=torch.float32).to(self.device)
 
-        horse_input = torch.tensor(self.horse_data[i].loc[:, self.input_columns].values, dtype=torch.float32).to(self.device)
-        horse_output = torch.tensor(self.horse_data[i].loc[:, self.output_columns].values, dtype=torch.float32).to(self.device)
+        input_data = torch.tensor(self.horse_df.loc[i, self.input_columns], dtype=torch.float32).to(self.device)
+        output_data = torch.tensor(self.horse_df.loc[i, self.output_columns], dtype=torch.float32).to(self.device)
 
-        data = {'race_input':race_input, 'race_output':race_output, 'horse_input':horse_input, 'horse_output':horse_output}
+        data = {'input':input_data, 'output':output_data}
 
         return data
 
     def __len__(self): 
-        return len(self.race_df)
+        return len(self.horse_df)
