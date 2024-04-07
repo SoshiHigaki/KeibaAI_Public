@@ -26,6 +26,9 @@ class VEN_Dataset(torch.utils.data.Dataset):
         self.one_hot_columns = self.config.one_hot_columns
         self.numerical_columns = self.config.numerical_columns
 
+        self.ven_info_path = self.config.ven_info_path
+        self.ven_numerical_columns = self.config.ven_numerical_columns
+
         self.input_columns = self.config.ven_input_columns
         self.output_columns = self.config.output_columns
 
@@ -44,6 +47,9 @@ class VEN_Dataset(torch.utils.data.Dataset):
 
         self.df = pd.concat([numerical_data, one_hot_data], axis=1)
         self.df = self.df.astype(float)
+
+        self.load_std()
+        self.df[self.ven_numerical_columns] = self.std.transform(self.df[self.ven_numerical_columns])
 
 
     def one_hot(self, df):
@@ -64,7 +70,13 @@ class VEN_Dataset(torch.utils.data.Dataset):
 
         return df
 
+    def load_std(self):
+        with open(self.ven_info_path, 'rb') as file:
+            self.std = pickle.load(file)
+
     def transform_std(self, df):
+        # data = self.std.transform(df)
+        # data = pd.DataFrame(data, columns=df.columns)
         data = df
         return data
     
@@ -97,9 +109,16 @@ class SIN_Dataset(torch.utils.data.Dataset):
 
         self.jockey_input_columns = self.config.sin_jockey_input_columns
         self.jockey_folder = self.config.jockey_folder
+        self.jockey_rename_dict = self.config.sin_jockey_input_dict
+
+        self.trainer_input_columns = self.config.sin_trainer_input_columns
+        self.trainer_folder = self.config.trainer_folder
+        self.trainer_rename_dict = self.config.sin_trainer_input_dict
+
+        self.sin_info_path = self.config.sin_info_path
 
         self.horse_input_columns = [f'past_{i+1}' for i in range(self.horse_dataset.horse_past_number)]
-        self.input_columns = [f'past_{i+1}' for i in range(self.horse_dataset.horse_past_number)] + self.jockey_input_columns
+        self.input_columns = [f'past_{i+1}' for i in range(self.horse_dataset.horse_past_number)] + self.jockey_input_columns + self.trainer_input_columns
         self.output_columns = ['race']
 
         self.train_config = config.Train_Config()
@@ -113,8 +132,9 @@ class SIN_Dataset(torch.utils.data.Dataset):
         df = df.reset_index(drop=True)
 
         df = self.jockey_data(df)
-
+        df = self.trainer_data(df)
         jockey_df = df.loc[:, self.jockey_input_columns]
+        trainer_df = df.loc[:, self.trainer_input_columns]
 
         self.race_dataset.prepare(df)
         self.horse_dataset.prepare(df)
@@ -164,33 +184,49 @@ class SIN_Dataset(torch.utils.data.Dataset):
         horse_df = pd.DataFrame(horse_tensor).apply(self.horse_fillna, axis=1)
         horse_df.columns = self.horse_input_columns
 
-        self.df = pd.concat([race_df, horse_df, jockey_df], axis=1)
+        self.df = pd.concat([race_df, horse_df, jockey_df, trainer_df], axis=1)
         self.df = self.df.dropna()
         self.df = self.df.reset_index(drop=True)
+
+        self.load_std()
+        self.df[self.input_columns] = self.std.transform(self.df[self.input_columns])
 
     def jockey_data(self, df):
         year = list(df['date'].apply(self.get_year))[0]
         jockey_df = pd.read_pickle(self.jockey_folder + f'{year-1}.pkl')
 
         df = pd.merge(df, jockey_df, on='jockey_id', how='left')
+        df = df.rename(columns=self.jockey_rename_dict)
+        df = df.fillna(0)
+
+        return df
+    
+    def trainer_data(self, df):
+        year = list(df['date'].apply(self.get_year))[0]
+        trainer_df = pd.read_pickle(self.trainer_folder + f'{year-1}.pkl')
+
+        df = pd.merge(df, trainer_df, on='trainer_id', how='left')
+        df = df.rename(columns=self.trainer_rename_dict)
         df = df.fillna(0)
 
         return df
          
+    def load_std(self):
+        with open(self.sin_info_path, 'rb') as file:
+            self.std = pickle.load(file)
+
     def get_year(self, x):
         return x.year
         
-
     def horse_fillna(self, row):
         row_mean = row.mean()
         return row.fillna(row_mean)
 
     def __getitem__(self, i):
         input_data = torch.tensor(self.df.loc[i, self.input_columns].values, dtype=torch.float32).to(self.device)
-        output_data = torch.tensor(self.df.loc[i, self.output_columns].values, dtype=torch.float32).to(self.device)
+        output_data = torch.tensor(self.df.loc[i, self.output_columns].values, dtype=torch.float32).to(self.device) 
 
         data = {'input':input_data, 'output':output_data}
-
         return data
 
     def __len__(self): 
@@ -211,6 +247,9 @@ class Race_Dataset(object):
         self.one_hot_columns = self.config.one_hot_columns
         self.numerical_columns = self.config.numerical_columns
 
+        self.ven_info_path = self.config.ven_info_path
+        self.ven_numerical_columns = self.config.ven_numerical_columns
+
         self.input_columns = self.config.ven_input_columns
         self.output_columns = self.config.output_columns
 
@@ -226,6 +265,9 @@ class Race_Dataset(object):
 
         self.df = pd.concat([numerical_data, one_hot_data], axis=1)
         self.df = self.df.astype(float)
+
+        self.load_std()
+        self.df[self.ven_numerical_columns] = self.std.transform(self.df[self.ven_numerical_columns])
 
     def one_hot(self, df):
         type_data = self.type_enc.fit_transform(df[['type']])
@@ -245,6 +287,10 @@ class Race_Dataset(object):
 
         return df
     
+    def load_std(self):
+        with open(self.ven_info_path, 'rb') as file:
+            self.std = pickle.load(file)
+
     def transform_std(self, df):
         # data = self.std.transform(df)
         # data = pd.DataFrame(data, columns=df.columns)

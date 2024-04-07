@@ -5,11 +5,13 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import pandas as pd
 import os
+from torch.optim.lr_scheduler import LambdaLR
 
 from Scripts.Train import config 
 from Scripts.Train import dataset
 from Scripts.Train import model
 from Scripts.Train import early_stopping
+
 
 
 class VEN_Train(object):
@@ -27,8 +29,10 @@ class VEN_Train(object):
         self.ven_model = model.VelocityEvaluationNetwork(self.config.ven_input_dim, 1)
         self.ven_model.to(self.device)
 
+        self.initial_lr = 0.01
+        self.final_lr = 0.001
         self.ven_criterion = nn.MSELoss()
-        self.ven_optimizer = torch.optim.Adam(self.ven_model.parameters(), lr=0.01)
+        self.ven_optimizer = torch.optim.Adam(self.ven_model.parameters(), lr=self.initial_lr, amsgrad=True)
 
         self.ven_model_path = self.config.ven_model_path
         self.ven_optimizer_path = self.config.ven_optimizer_path
@@ -37,12 +41,16 @@ class VEN_Train(object):
         self.ven_model.load_state_dict(torch.load(self.ven_model_path)) if os.path.exists(self.ven_model_path) else None
         self.ven_optimizer.load_state_dict(torch.load(self.ven_optimizer_path)) if os.path.exists(self.ven_optimizer_path) else None
 
-        self.early_stopping = early_stopping.EarlyStopping(threshold=10.0*10**(-3))
+        self.early_stopping = early_stopping.EarlyStopping(threshold=5.0*10**(-3))
 
     def train(self, train_paths, test_paths, epochs):
         self.ven_model.train()
 
         for train_path, test_path in tqdm(zip(train_paths, test_paths), total=len(train_paths)):
+
+            lambda_lr = lambda epoch: 1 - (1 - self.final_lr / self.initial_lr) * (epoch / (epochs-1))
+            scheduler = LambdaLR(self.ven_optimizer, lr_lambda=lambda_lr)
+
             self.train_ven_dataset.prepare(train_path)
             train_data_loader = DataLoader(self.train_ven_dataset,
                                             batch_size=self.batch_size,
@@ -59,7 +67,7 @@ class VEN_Train(object):
             log_path = root + '.csv'
 
             self.early_stopping.initialize()
-            for _ in tqdm(range(epochs), leave=False, desc=f'{train_path}'):
+            for epoch in tqdm(range(epochs), leave=False, desc=f'{train_path}'):
                 epoch_loss = 0
                 self.ven_model.train()
                 for data in train_data_loader:
@@ -100,6 +108,8 @@ class VEN_Train(object):
                 torch.save(self.ven_model.state_dict(), self.ven_model_path)
                 torch.save(self.ven_optimizer.state_dict(), self.ven_optimizer_path) 
 
+                scheduler.step()
+
     def save_log(self,
                  log_path,
                  
@@ -130,8 +140,10 @@ class SIN_Train(object):
         self.sin_model = model.SpeedIndexNetwork(self.config.sin_input_dim, 1)
         self.sin_model.to(self.device)
 
+        self.initial_lr = 0.01
+        self.final_lr = 0.001
         self.sin_criterion = nn.MSELoss()
-        self.sin_optimizer = torch.optim.Adam(self.sin_model.parameters(), lr=0.01)
+        self.sin_optimizer = torch.optim.Adam(self.sin_model.parameters(), lr=self.initial_lr, amsgrad=True)
 
         self.sin_model_path = self.config.sin_model_path
         self.sin_optimizer_path = self.config.sin_optimizer_path
@@ -146,6 +158,9 @@ class SIN_Train(object):
         self.sin_model.train()
 
         for train_path, test_path in tqdm(zip(train_paths, test_paths), total=len(train_paths)):
+
+            lambda_lr = lambda epoch: 1 - (1 - self.final_lr / self.initial_lr) * (epoch / (epochs-1))
+            scheduler = LambdaLR(self.sin_optimizer, lr_lambda=lambda_lr)
 
             self.train_sin_dataset.prepare(train_path)
             train_data_loader = DataLoader(self.train_sin_dataset,
@@ -163,7 +178,7 @@ class SIN_Train(object):
             log_path = root + '.csv'
 
             self.early_stopping.initialize()
-            for _ in tqdm(range(epochs), leave=False, desc=f'{train_path}'):
+            for epoch in tqdm(range(epochs), leave=False, desc=f'{train_path}'):
                 epoch_loss = 0
                 self.sin_model.train()
                 for data in train_data_loader:
@@ -203,6 +218,8 @@ class SIN_Train(object):
 
                 torch.save(self.sin_model.state_dict(), self.sin_model_path)
                 torch.save(self.sin_optimizer.state_dict(), self.sin_optimizer_path) 
+
+                scheduler.step()
 
     def save_log(self,
                  log_path,
