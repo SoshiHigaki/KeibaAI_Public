@@ -3,13 +3,14 @@ import os
 from Scripts.Prepare import get_data
 from Scripts.Prepare import get_horse_data
 from Scripts.Prepare import get_jockey_data
-
+from Scripts.Prepare import get_trainer_data
 
 class Prepare(object):
     def __init__(self):
         self.gd = get_data.Get_Data()
         self.gh = get_horse_data.Get_Horse_Data()
         self.gj = get_jockey_data.Get_Jockey_Data()
+        self.gt = get_trainer_data.Get_Trainer_Data()
 
         self.save_folder = 'Data/Race/'
         self.return_folder = 'Data/Return/'
@@ -42,7 +43,7 @@ class Prepare(object):
         self.gh.main(horse_ids)
         
         self.gj.main(start_year-1, end_year)
-
+        self.gt.main(start_year-1, end_year)
 
     def generate_year_month_list(self, start_year, start_mon, end_year, end_mon):
         year_month_list = []
