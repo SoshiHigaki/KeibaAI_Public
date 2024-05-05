@@ -18,7 +18,7 @@ class Get_Horse_Data(object):
         os.makedirs(self.save_folder) if not os.path.exists(self.save_folder) else None
 
     def main(self, horse_ids):
-        for id in tqdm(horse_ids):
+        for id in tqdm(horse_ids, desc='馬の過去データを取得中'):
             time.sleep(0.5)
             try:
                 url = self.get_url(id)
