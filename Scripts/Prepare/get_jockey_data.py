@@ -16,7 +16,7 @@ class Get_Jockey_Data(object):
     def main(self, start_year, end_year):
         year_list = list(range(start_year, end_year+1, 1))
 
-        for year in tqdm(year_list):
+        for year in tqdm(year_list, desc='ジョッキーの過去データを取得中'):
             jockey_data = pd.DataFrame([])
             page = 1
             while True:
