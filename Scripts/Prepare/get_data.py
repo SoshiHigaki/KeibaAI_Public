@@ -12,25 +12,25 @@ import random
 class Get_Data(object):
     
     def __init__(self):
-        self.race_url_pattern = r'/race/\d+'
-        self.init_race_url = 'https://db.netkeiba.com/'
-        self.test_ratio = 0.2
+        self.race_url_pattern = r'/race/\d+' # urlにヒットするパターン
+        self.init_race_url = 'https://db.netkeiba.com/' # ネット競馬からデータを集めるので、ネット競馬の先頭のurl
+        self.test_ratio = 0.2 # テストデータの割合は2割
 
     def main(self, start_year, start_mon, end_year, end_mon):
-        base_url = self.get_base_url(start_year, start_mon, end_year, end_mon)
-        race_urls = self.get_race_url(base_url)
+        base_url = self.get_base_url(start_year, start_mon, end_year, end_mon) # ページを指定する前のベースとなるurl
+        race_urls = self.get_race_url(base_url) # ページを進めながらレースのurlを取得する
 
         test_size = int(len(race_urls) * self.test_ratio)
         random.shuffle(race_urls)
-        train_race_urls = race_urls[test_size:]
-        test_race_urls = race_urls[:test_size]
+        train_race_urls = race_urls[test_size:] # train用のurl
+        test_race_urls = race_urls[:test_size] # test用のurl
 
         whole_return_df = pd.DataFrame([])
         train_whole_df = pd.DataFrame([])
         for url in tqdm(train_race_urls, desc=f'{start_year}/{str(start_mon).zfill(2)}～{end_year}/{str(end_mon).zfill(2)} : Train'):
             time.sleep(0.5)
             try:
-                df, return_df = self.get_each_race(url)
+                df, return_df = self.get_each_race(url) # レースのデータと払い戻しのデータを取得
                 train_whole_df = pd.concat([train_whole_df, df], axis=0)
                 whole_return_df = pd.concat([whole_return_df, return_df], axis=0)
             except Exception as e:
@@ -58,11 +58,13 @@ class Get_Data(object):
         
         return train_whole_df, test_whole_df, whole_return_df
 
-    
+
+    # 期間を指定してurlを作成する関数
     def get_base_url(self, start_year, start_mon, end_year, end_mon):
         url = f'https://db.netkeiba.com/?pid=race_list&word=&track%5B%5D=1&track%5B%5D=2&start_year={start_year}&start_mon={start_mon}&end_year={end_year}&end_mon={end_mon}&kyori_min=&kyori_max=&sort=date&list=100'
         return url
-    
+
+    # データベースのページ数を取得
     def get_all_pages(self, base_url):
         response = requests.get(base_url)
         html = response.text
@@ -82,7 +84,7 @@ class Get_Data(object):
 
         return all_pages
         
-
+    # ページを進めながらレースのurlを取得する
     def get_race_url(self, base_url):
         all_pages = self.get_all_pages(base_url)
 
@@ -112,7 +114,7 @@ class Get_Data(object):
             race_urls.extend(norm_links)
         return race_urls
     
-
+    # レースのurlからレースの情報を取得する
     def get_each_race(self, url):
         race_id =  url.split('/')[-2]
 
@@ -131,7 +133,8 @@ class Get_Data(object):
         return_df = self.get_money_return(race_id, soup)
 
         return df, return_df
-    
+
+    # レースの情報をテーブルデータで取得する
     def get_race_table(self, soup):
         table = soup.find('table', class_='race_table_01')
         # テーブルのヘッダーを取得
@@ -177,7 +180,8 @@ class Get_Data(object):
         df['trainer_id'] = trainer_ids
 
         return df
-    
+
+    # レースが行われた時の環境に関する情報を取得する
     def get_info_table(self, soup):
         race_info = soup.find('diary_snap').find('diary_snap_cut').find('span').text.strip()
 
@@ -191,7 +195,8 @@ class Get_Data(object):
         condition = condition.split(':')[1].strip()[0]
 
         return [type, length, weather, condition]
-    
+
+    # 各種情報をひとつのテーブルにまとめる
     def concate_data(self, df, info, race_id, date):
         info_df = pd.DataFrame([])
         info_df['type'] = [info[0]] * len(df)
@@ -205,7 +210,8 @@ class Get_Data(object):
         df = pd.concat([df, info_df], axis=1)
 
         return df
-    
+
+    # データの形式を指定する
     def clean(self, df):
         df['sex'] = df['sex_and_age'].apply(self.get_sex) 
         df['age'] = df['sex_and_age'].apply(self.get_age)
@@ -217,7 +223,8 @@ class Get_Data(object):
         df['velocity'] = df.apply(self.get_velocity, axis=1)
 
         return df
-    
+
+    # データとして利用するカラムを指定する
     def get_columns(self, df):
         df = df.loc[:, ['race_id', 'horse_id', 'jockey_id', 'trainer_id', 
                         'date', 'horse_number', 'weight_carried', 'type', 'length', 
@@ -296,7 +303,8 @@ class Get_Data(object):
         df['velocity'] = df['velocity'].astype(float, errors='ignore')
 
         return df
-    
+
+    # 払い戻しの情報を取得する
     def get_money_return(self, race_id, soup):
         table = soup.find('table', class_='pay_table_01')
         tmp = pd.DataFrame([])
