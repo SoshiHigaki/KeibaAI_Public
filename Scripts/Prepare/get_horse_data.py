@@ -9,7 +9,7 @@ from datetime import datetime
 import os
 
 import warnings
-warnings.simplefilter('ignore', FutureWarning)
+warnings.simplefilter('ignore', FutureWarning) # バージョンによるwarningが出ないようにする
 
 class Get_Horse_Data(object):
     def __init__(self):
