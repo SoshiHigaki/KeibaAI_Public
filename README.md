@@ -124,6 +124,6 @@ google colab にて一連の流れを体験することができます。
 
     - 結果
     2023年の一年間のレースを対象にシミュレーションを行った。
-    ![alt text](2023-return.jpg)
+   ![2023-return](https://github.com/SoshiHigaki/KeibaAI_Public/assets/145969282/59316d7b-cd27-4776-84c4-1cd94e3692fd)
 
     グラフから、偏差値が78以上の馬にかければリターンの方が大きくなること結果になった。
