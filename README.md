@@ -111,7 +111,7 @@ google colab にて一連の流れを体験することができます。
     - 学習回数 : 500エポック (Early Stopあり)
 
     学習結果　損失の推移
-   ![alt text](result.jpg)
+   ![result](https://github.com/SoshiHigaki/KeibaAI_Public/assets/145969282/6d3d8979-f006-479e-82d7-1633b01db74e)
 
 
 5. シミュレーション
